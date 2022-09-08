@@ -26,7 +26,7 @@ jobs:
         run: make build
 
       - name: run mathport on Lean 3
-        run: env time -v make lean-predata
+        run: env time -v make lean3-predata
 
       - name: run mathport on mathlib
         run: env time -v make mathbin-predata

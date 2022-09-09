@@ -1,10 +1,10 @@
-name: mathport
+name: optlibport
 
 on: workflow_dispatch
 
 jobs:
   build:
-    name: Mathport
+    name: Optlibport
     runs-on: ubuntu-latest
     steps:
       - name: clean up working directory
@@ -26,22 +26,23 @@ jobs:
         run: make build
 
       - name: prepare sources
-        run: make mathbin-source lean3-source
+        run: make mathbin-source lean3-source optlib-source
 
-      - name: prepare predata for Lean 3
-        run: make lean3-predata
+      - name: download mathbin release
+        run: |
+          TAG="nightly-2022-09-08"
+          ./download-release.sh $TAG
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: prepare predata for mathlib
-        run: make mathbin-predata
+      - name: make predata for optlib
+        run: env time -v make optlib-predata
 
-      - name: run mathport on Lean 3
-        run: env time -v make port-lean
-
-      - name: run mathport on mathlib
-        run: env time -v make port-mathbin
+      - name: run mathport on optlib
+        run: env time -v make port-optlib
 
       - name: prepare tarballs for release
-        run: make mathport-tarballs
+        run: make optlib-tarballs
 
       - name: set tag (non-master)
         if: github.ref != 'refs/heads/master'
@@ -74,10 +75,8 @@ jobs:
           tag_name: ${{ env.TAG }}
           target_commitish: ${{ github.sha }}
           files: |
-            lean3-binport.tar.gz
-            lean3-synport.tar.gz
-            mathlib3-binport.tar.gz
-            mathlib3-synport.tar.gz
+            optlib-binport.tar.gz
+            optlib-synport.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

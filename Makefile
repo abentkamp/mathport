@@ -32,6 +32,7 @@ build:
 
 # Select which commit of mathlib3 to use.
 MATHBIN_COMMIT=master
+OPTLIB_COMMIT=master
 
 # Clone mathlib3 and create `all.lean`.
 mathbin-source:
@@ -42,6 +43,15 @@ mathbin-source:
 	cd sources/mathlib && git clean -xfd && git checkout $(MATHBIN_COMMIT)
 	cd sources/mathlib && echo -n 'mathlib commit: ' && git rev-parse HEAD
 	cd sources/mathlib && leanpkg configure && ./scripts/mk_all.sh
+
+# Clone optlib
+optlib-source:
+	mkdir -p sources
+	if [ ! -d "sources/optlib" ]; then \
+		cd sources && git clone https://github.com/abentkamp/optlib.git; \
+	fi
+	cd sources/mathlib && git clean -xfd && git checkout $(OPTLIB_COMMIT)
+	cd sources/mathlib && echo -n 'optlib commit: ' && git rev-parse HEAD
 
 # Clone Lean 3, and some preparatory work:
 # * Obtain the commit from (community edition) Lean 3 which mathlib is using
@@ -114,6 +124,12 @@ mathport-tarballs:
 	tar -czvf lean3-binport.tar.gz -C Outputs/oleans/leanbin .
 	tar -czvf mathlib3-synport.tar.gz -C Outputs/src/mathbin .
 	tar -czvf mathlib3-binport.tar.gz -C Outputs/oleans/mathbin .
+
+
+optlib-tarballs:
+	mkdir -p Outputs/src/optbin Outputs/oleans/optbin
+	tar -czvf optlib-synport.tar.gz -C Outputs/src/optbin .
+	tar -czvf optlib-binport.tar.gz -C Outputs/oleans/optbin .
 
 tarballs: predata-tarballs mathport-tarballs
 

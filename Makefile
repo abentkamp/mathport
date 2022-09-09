@@ -75,6 +75,13 @@ mathbin-predata: mathbin-source
 	cd sources/mathlib && lean --make --recursive --ast --tlean src
 	cd sources/mathlib && git rev-parse HEAD > rev
 
+optlib-predata:
+	find sources/optlib/src -name "*.olean" -delete # ast only exported when oleans not present
+	# By changing into the directory, `elan` automatically dispatches to the correct binary.
+	cd sources/optlib && lean --make --recursive --ast --tlean src
+	# cd sources/optlib && git rev-parse HEAD > rev
+
+
 predata: lean3-predata mathbin-predata
 
 init-logs:
@@ -91,6 +98,9 @@ port-lean: init-logs build
 
 port-mathbin: port-lean
 	./build/bin/mathport --make config.json Leanbin::all Mathbin::all >> Logs/mathport.out 2> >(tee -a Logs/mathport.err >&2)
+
+port-optlib: init-logs
+	./build/bin/mathport --make config.json Leanbin::all Mathbin::all Optbin::all >> Logs/mathport.out 2> >(tee -a Logs/mathport.err >&2)
 
 port: port-lean port-mathbin
 

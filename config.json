@@ -3,13 +3,16 @@
         "outRoot": "Outputs",
         "packages": {
             "Leanbin": "sources/lean/library",
-            "Mathbin": "sources/mathlib/src"
+            "Mathbin": "sources/mathlib/src",
+            "Optbin":   "sources/optlib/src"
         },
         "leanPath": [
             "./lean_packages/mathlib/build/lib",
+            "./lean_packages/optlib/build/lib",
             "./lean_packages/std/build/lib",
             "./Outputs/oleans/leanbin",
-            "./Outputs/oleans/mathbin"
+            "./Outputs/oleans/mathbin",
+            "./Outputs/oleans/optbin"
         ]
     },
     "stringsToKeep": [

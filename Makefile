@@ -50,9 +50,9 @@ optlib-source:
 	if [ ! -d "sources/optlib" ]; then \
 		cd sources && git clone https://github.com/abentkamp/optlib.git; \
 	fi
-	cd sources/mathlib && git clean -xfd && git checkout $(OPTLIB_COMMIT)
-	cd sources/mathlib && echo -n 'optlib commit: ' && git rev-parse HEAD
-	cd sources/mathlib && leanproject get-mathlib-cache
+	cd sources/optlib && git clean -xfd && git checkout $(OPTLIB_COMMIT)
+	cd sources/optlib && echo -n 'optlib commit: ' && git rev-parse HEAD
+	cd sources/optlib && leanproject get-mathlib-cache
 
 # Clone Lean 3, and some preparatory work:
 # * Obtain the commit from (community edition) Lean 3 which mathlib is using

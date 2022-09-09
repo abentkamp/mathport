@@ -20,6 +20,17 @@ jobs:
           ./elan-init -y --default-toolchain none
           echo "$HOME/.elan/bin" >> $GITHUB_PATH
 
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9' 
+
+      - name: install mathlibtools
+        run: |
+          python3 -m pip install --user pipx
+          python3 -m pipx ensurepath
+          source ~/.profile
+          pipx install mathlibtools
+
       - uses: actions/checkout@v2
 
       - name: build mathport

@@ -55,33 +55,14 @@ jobs:
       - name: prepare tarballs for release
         run: make optlib-tarballs
 
-      # - name: set tag (non-master)
-      #   if: github.ref != 'refs/heads/master'
-      #   run: echo "TAG=pr-${GITHUB_REF##*/}" >> $GITHUB_ENV && echo "SHORT_SHA=`git rev-parse --short HEAD`" >> $GITHUB_ENV
+      - name: set tag
+        run: echo "TAG=port-$(date -u +%F)" >> $GITHUB_ENV && echo "SHORT_SHA=`git rev-parse --short HEAD`" >> $GITHUB_ENV
 
-      - name: set tag (master)
-        # if: github.ref == 'refs/heads/master'
-        run: echo "TAG=nightly-$(date -u +%F)" >> $GITHUB_ENV
-
-      # - name: release (non-master)
-      #   if: github.ref != 'refs/heads/master'
-      #   uses: softprops/action-gh-release@v1
-      #   with:
-      #     prerelease: true
-      #     tag_name: ${{ env.TAG }}-${{ env.SHORT_SHA }}
-      #     target_commitish: ${{ github.sha }}
-      #     files: |
-      #       optlib-binport.tar.gz
-      #       optlib-synport.tar.gz
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: release (master)
-        # if: github.ref == 'refs/heads/master'
+      - name: release
         uses: softprops/action-gh-release@v1
         with:
           prerelease: true
-          tag_name: ${{ env.TAG }}
+          tag_name: ${{ env.TAG }}-${{ env.SHORT_SHA }}
           target_commitish: ${{ github.sha }}
           files: |
             optlib-binport.tar.gz

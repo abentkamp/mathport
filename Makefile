@@ -48,7 +48,7 @@ mathbin-source:
 optlib-source:
 	mkdir -p sources
 	if [ ! -d "sources/optlib" ]; then \
-		cd sources && git clone https://github.com/abentkamp/optlib.git; \
+		cd sources && git clone https://github.com/verified-optimization/optlib.git; \
 	fi
 	cd sources/optlib && git clean -xfd && git checkout $(OPTLIB_COMMIT)
 	cd sources/optlib && echo -n 'optlib commit: ' && git rev-parse HEAD

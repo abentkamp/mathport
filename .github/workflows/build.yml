@@ -41,7 +41,7 @@ jobs:
 
       - name: download mathbin release
         run: |
-          TAG="nightly-2022-09-08"
+          TAG="nightly-2023-01-02-04"
           ./download-release.sh $TAG
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

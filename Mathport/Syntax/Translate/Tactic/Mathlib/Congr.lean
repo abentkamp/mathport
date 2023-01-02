@@ -14,28 +14,27 @@ namespace Mathport.Translate.Tactic
 open AST3 Parser
 
 -- # tactic.congr
-@[trTactic congr'] def trCongr' : TacM Syntax := do
-  let n ← parse (smallNat)?
-  let args ← parse (tk "with" *> return (← (rcasesPat true)*, ← (tk ":" *> smallNat)?))?
-  let pats ← args.mapM (liftM do ·.1.mapM trRCasesPat)
-  let ks := args.map (·.2.map quote)
-  `(tactic| congr $[$(n.map quote)]? $[with $[$pats]* $[: $ks]?]?)
+@[tr_tactic congr'] def trCongr' : TacM Syntax.Tactic := do
+  let n := (← parse (smallNat)?).map quote
+  match ← parse (tk "with" *> return (← rintroPat*, ← (tk ":" *> smallNat)?))? with
+  | none => `(tactic| congr $(n)?)
+  | some (pats, ks) =>
+    `(tactic| congr $(n)? with $(← liftM <| pats.mapM trRIntroPat)* $[: $(ks.map quote)]?)
 
-@[trTactic rcongr] def trRCongr : TacM Syntax := do
-  let pats ← liftM $ (← parse (rcasesPat true)*).mapM trRCasesPat
-  `(tactic| rcongr $[$pats]*)
+@[tr_tactic rcongr] def trRCongr : TacM Syntax.Tactic := do
+  `(tactic| rcongr $(← liftM $ (← parse rintroPat*).mapM trRIntroPat)*)
 
-@[trTactic convert] def trConvert : TacM Syntax := do
+@[tr_tactic convert] def trConvert : TacM Syntax.Tactic := do
   let sym := optTk (← parse (tk "<-")?).isSome
   let r ← trExpr (← parse pExpr)
   let n ← parse (tk "using" *> smallNat)?
   `(tactic| convert $[←%$sym]? $r $[using $(n.map quote)]?)
 
-@[trTactic convert_to] def trConvertTo : TacM Syntax := do
+@[tr_tactic convert_to] def trConvertTo : TacM Syntax.Tactic := do
   `(tactic| convert_to $(← trExpr (← parse pExpr))
     $[using $((← parse (tk "using" *> smallNat)?).map Quote.quote)]?)
 
-@[trTactic ac_change] def trAcChange : TacM Syntax := do
+@[tr_tactic ac_change] def trAcChange : TacM Syntax.Tactic := do
   `(tactic| ac_change $(← trExpr (← parse pExpr))
     $[using $((← parse (tk "using" *> smallNat)?).map Quote.quote)]?)
 

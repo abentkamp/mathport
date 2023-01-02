@@ -16,7 +16,6 @@ namespace Mathport
 
 open Lean
 open System (FilePath)
-open Std (HashMap)
 open Mathlib.Prelude.Rename
 
 -- During synport, we need to guess how to capitalize a field name without knowing
@@ -41,35 +40,58 @@ def getFieldNameMap (env : Environment) : FieldNameMap :=
 def addPossibleFieldName (n3 n4 : Name) : CoreM Unit := do
   modifyEnv fun env => mathportFieldNameExtension.addEntry env (n3, n4)
 
+export Mathlib.Prelude.Rename (binportTag)
+
 namespace Rename
 
 variable (env : Environment)
 
 -- For both binport and synport
-def resolveIdent? (n3 : Name) (choices : Array Name := #[]) : Option Name :=
+def resolveIdent? (n3 : Name) (removeX : Bool) (choices : Array Name := #[]) :
+    Option ((String × Name) × Name) :=
   if h : choices.size > 0 then
-    match getRenameMap env |>.find? choices[0] with
-    | none => none
-    | some target => clipLike target n3
+    getRenameMap env |>.find? choices[0] |>.map fun target =>
+      (target, clean' (clipLike target.2 n3 choices[0]))
   else
-    getRenameMap env |>.find? n3
+    getRenameMap env |>.find? n3 |>.map fun target => (target, clean' target.2)
 where
-  clipLike target n3 :=
-    some <| componentsToName <| target.components.drop (target.getNumParts - n3.getNumParts)
+  clipLike target n3 orig :=
+    if orig.getNumParts == target.getNumParts then
+      componentsToName <| target.components.drop (target.getNumParts - n3.getNumParts)
+    else target
+
+  clean' s := if removeX then clean s else s
+
+  clean
+    | .anonymous => .anonymous
+    | .str p s =>
+      let s := if s.contains 'ₓ' then
+        s.foldl (fun acc c => if c = 'ₓ' then acc else acc.push c) ""
+      else s
+      .str (clean p) s
+    | .num p n => .num (clean p) n
 
   componentsToName
     | [] => Name.anonymous
     | (c::cs) => c ++ componentsToName cs
 
+-- For synport only
+def resolveIdentCore! (n3 : Name) (removeX : Bool) (choices : Array Name := #[]) : (String × Name) × Name :=
+  resolveIdent? env n3 removeX choices |>.getD (("", choices.getD 0 n3), n3)
+
 -- For both binport and synport
-def resolveIdent! (n3 : Name) (choices : Array Name := #[]) : Name :=
-  resolveIdent? env n3 choices |>.getD n3
+def resolveIdent! (n3 : Name) (removeX : Bool) (choices : Array Name := #[]) : Name :=
+  (resolveIdentCore! env n3 removeX choices).2
+
+-- For synport only
+def getClashes (n4 : Name) : Name × List Name :=
+  (getRenameMap env).toLean3.findD n4 (n4, [])
 
 -- For synport only
 -- TODO: better heuristic/binport index?
 partial def renameNamespace (ns3 : Name) : Name :=
-  match resolveIdent? env ns3 with
-  | some ns4 => ns4
+  match resolveIdent? env ns3 true with
+  | some (_, ns4) => ns4
   | none =>
     match ns3 with
     | Name.str p s .. => renameNamespace p |>.mkStr s.snake2pascal
@@ -85,7 +107,7 @@ def renameField? (n : Name) : Option Name :=
   match n with
   | Name.str Name.anonymous s .. =>
     match getFieldNameMap env |>.find? s with
-    | some (c::cs) => Name.mkSimple $ s.convertSnake c.getString!.getCapsKind
+    | some (c::_) => Name.mkSimple $ s.convertSnake c.getString!.getCapsKind
     | _ => none
   | _ => none
 

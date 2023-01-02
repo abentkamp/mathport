@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Daniel Selsam, Gabriel Ebner
 -/
 import Lean
+import Std.Data.List.Basic
 import Mathport.Util.Parse
 import Mathport.Binary.Basic
 import Mathport.Binary.EnvModification
@@ -106,6 +107,8 @@ def parseLine (line : String) : ParseM Unit := do
       | [i, "#UIM", j₁, j₂]        => writeLevel i $ mkLevelIMax (← str2level j₁) (← str2level j₂)
       | [i, "#UP", j]              => writeLevel i $ mkLevelParam (← str2name j)
       | [i, "#EV", j]              => writeExpr  i $ mkBVar (← parseNat j)
+      | [i, "#EMVAR"]              => writeExpr  i $ mkMVar ⟨.anonymous⟩
+      | [i, "#ELC"]                => writeExpr  i $ mkFVar ⟨.anonymous⟩
       | [i, "#ES", j]              => writeExpr  i $ mkSort (← str2level j)
       | (i :: "#EC" :: j :: us)    => writeExpr  i $ mkConst (← str2name j) (← us.mapM str2level)
       | [i, "#EA", j₁, j₂]         => writeExpr  i $ mkApp (← str2expr j₁) (← str2expr j₂)
@@ -113,6 +116,7 @@ def parseLine (line : String) : ParseM Unit := do
       | [i, "#EP", bi, j₁, j₂, j₃] => writeExpr  i $ mkForall (← str2name j₁) (← parseBinderInfo bi) (← str2expr j₂) (← str2expr j₃)
       | [i, "#EZ", j₁, j₂, j₃, j₄] => writeExpr  i $ mkLet (← str2name j₁) (← str2expr j₂) (← str2expr j₃) (← str2expr j₄)
       | [i, "#SORRY_MACRO", j]     => writeExpr  i $ mkSorryPlaceholder (← str2expr j)
+      | [i, "#QUOTE_MACRO", _r,_j] => writeExpr  i $ .app (.app (.const `expr.sort []) (.const `bool.tt [])) (.const `level.zero []) -- TODO
       | [i, "#PROJ_MACRO", iName, _cName, _pName, idx, arg] =>
         let (iName, idx, arg) := (← str2name iName, ← parseNat idx, ← str2expr arg)
         let some numParams := (← get).ind2params.find? iName
@@ -154,7 +158,7 @@ def parseLine (line : String) : ParseM Unit := do
 
       | ("#IND" :: nps :: n :: t :: nis :: rest) =>
         let (nps, n, t, nis) := (← parseNat nps, ← str2name n, ← str2expr t, ← parseNat nis)
-        let (is, ups) := rest.splitAt' (2 * nis)
+        let (is, ups) := rest.splitAt (2 * nis)
         let lparams ← ups.mapM str2name
         let ctors ← parseIntros is
         modify fun s => { s with ind2params := s.ind2params.insert n nps }

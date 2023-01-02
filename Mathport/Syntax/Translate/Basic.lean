@@ -3,14 +3,12 @@ Copyright (c) 2021 Microsoft Corporation. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Mario Carneiro, Daniel Selsam
 -/
-import Mathport.Bridge.Path
+import Mathport.Bridge.Config
 import Mathport.Syntax.Data4
 import Mathport.Syntax.Translate.Notation
 import Mathport.Syntax.Translate.Attributes
 import Mathport.Syntax.Translate.Parser
-import Mathlib
 
-abbrev Lean.Syntax.Tactic := TSyntax `tactic
 abbrev Lean.Syntax.Conv := TSyntax `conv
 abbrev Lean.Syntax.Attr := TSyntax `attr
 abbrev Lean.Syntax.BracketedBinder := TSyntax ``Parser.Term.bracketedBinder
@@ -60,7 +58,7 @@ instance : Coe (TSyntax ``Parser.Command.declModifiersF)
   coe s := ⟨s⟩
 
 instance : Coe Term Syntax.FunBinder where
-  coe s := Id.run `(funBinder| $s)
+  coe s := Id.run `(Parser.Term.funBinder| $s)
 
 def implicitBinderF := Parser.Term.implicitBinder
 def strictImplicitBinderF := Parser.Term.strictImplicitBinder
@@ -81,7 +79,7 @@ instance : Coe Syntax.Ident_ Syntax.Term where coe s := ⟨s⟩
 
 namespace Translate
 
-open Std (HashMap)
+open Lean (HashMap)
 open AST3
 
 structure NotationData where
@@ -113,6 +111,7 @@ structure State where
   userAttrs : NameMap (Array (Spanned AST3.Param) → CommandElabM Syntax.Attr) := {}
   userCmds : NameMap (AST3.Modifiers → Array (Spanned AST3.Param) → CommandElabM Unit) := {}
   remainingComments : List Comment := {}
+  afterNextCommand : Array Syntax.Command := #[]
   deriving Inhabited
 
 def NotationEntries.insert (m : NotationEntries) : NotationData → NotationEntries
@@ -120,7 +119,6 @@ def NotationEntries.insert (m : NotationEntries) : NotationData → NotationEntr
 
 initialize synportNotationExtension : SimplePersistentEnvExtension NotationData NotationEntries ←
   registerSimplePersistentEnvExtension {
-    name          := `Mathport.Translate.synportNotationExtension
     addEntryFn    := NotationEntries.insert
     addImportedFn := fun es => mkStateFromImportedEntries NotationEntries.insert {} es
   }
@@ -161,7 +159,6 @@ def PrecedenceEntries.insert (m : PrecedenceEntries) :
 initialize synportPrecedenceExtension :
   SimplePersistentEnvExtension (String × PrecedenceKind × Precedence) PrecedenceEntries ←
   registerSimplePersistentEnvExtension {
-    name          := `Mathport.Translate.synportPrecedenceExtension
     addEntryFn    := PrecedenceEntries.insert
     addImportedFn := fun es => mkStateFromImportedEntries PrecedenceEntries.insert {} es
   }
@@ -183,7 +180,7 @@ def Precedence.toSyntax : Precedence → Syntax.Prec
   | Precedence.maxPlus => Id.run `(prec| max)
 
 structure Context where
-  pcfg : Path.Config
+  config : Config
   notations : Array Notation
   commands : Array Command
   trExpr : Expr → CommandElabM Term
@@ -198,7 +195,7 @@ def printOutput (out : Format) : M Unit :=
   modify fun s => { s with output := s.output ++ out }
 
 def logComment (comment : Format) : M Unit :=
-  printOutput f!"-- {comment}\n"
+  printOutput f!"/- {comment} -/\n"
 
 private def checkColGt := Lean.Parser.checkColGt
 
@@ -321,16 +318,18 @@ def trExprUnspanned (e : Expr) : M Term := do (← read).trExpr e
 def trExpr := spanningS trExprUnspanned
 
 def trTacticUnspanned (e : Tactic) : M Syntax.Tactic := do (← read).trTactic e
-def trTactic := spanningS trTacticUnspanned
+def trTacticRaw := spanningS trTacticUnspanned
 
 def trCommandUnspanned (e : Command) : M Unit := do (← read).trCommand e
 def trCommand := spanning trCommandUnspanned
 
+def renameIdentCore (n : Name) (choices : Array Name := #[]) : M ((String × Name) × Name) :=
+  return Rename.resolveIdentCore! (← getEnv) n true choices
 def renameIdent (n : Name) (choices : Array Name := #[]) : M Name :=
-  return Rename.resolveIdent! (← getEnv) n choices
+  return Rename.resolveIdent! (← getEnv) n true choices
 def renameNamespace (n : Name) : M Name := return Rename.renameNamespace (← getEnv) n
 def renameAttr (n : Name) : M Name := return Rename.renameAttr n
-def renameModule (n : Name) : M Name := do Rename.renameModule (← read).pcfg n
+def renameModule (n : Name) : M Name := do Rename.renameModule (← read).config.pathConfig n
 def renameField (n : Name) : M Name := return Rename.renameField? (← getEnv) n |>.getD n
 def renameOption (n : Name) : M Name := warn! "warning: unsupported option {n}" | pure n
 
@@ -360,7 +359,7 @@ def addLeadingComment' (comment : Comment) (info : SourceInfo) : SourceInfo :=
         (positionToStringPos comment.start)
         "".toSubstring
         (positionToStringPos comment.end)
-    | SourceInfo.synthetic a b =>
+    | SourceInfo.synthetic a b _ =>
       SourceInfo.original commentText.toSubstring a "".toSubstring b
     | SourceInfo.original leading a trailing b =>
       SourceInfo.original (commentText ++ leading.toString).toSubstring a trailing b
@@ -383,7 +382,7 @@ def addTrailingComment' (comment : Comment) (info : SourceInfo) : SourceInfo :=
         (positionToStringPos comment.start)
         commentText.toSubstring
         (positionToStringPos comment.end)
-    | SourceInfo.synthetic a b =>
+    | SourceInfo.synthetic a b _ =>
       SourceInfo.original "".toSubstring a commentText.toSubstring b
     | SourceInfo.original leading a trailing b =>
       SourceInfo.original leading a (trailing.toString ++ commentText).toSubstring b
@@ -420,10 +419,13 @@ partial def insertComments (stx : Syntax) : M Syntax := do
     | Syntax.node .. => pure <| stx.setArgs (← stx.getArgs.mapM insertComments)
     | _ => pure stx
 
-partial def printFirstLineComments : M Unit := do
+partial def printFirstLineComments (extraComments : Option String) : M Unit := do
   if let some comment ← nextCommentIf (·.start.line ≤ 1) then
+    let comment := match extraComments with
+    | some extra => { comment with text := comment.text ++ "\n" ++ extra }
+    | none => comment
     printOutput (mkCommentString comment)
-    printFirstLineComments
+    printFirstLineComments none
 
 def printRemainingComments : M Unit := do
   for comment in (← get).remainingComments do
@@ -444,7 +446,7 @@ def reprint (stx : Syntax) : Format :=
   reprintCore stx |>.getD ""
 
 def captureTraces [Monad m] [MonadTrace m] [MonadFinally m] (k : m α) :
-    m (α × Std.PersistentArray TraceElem) := do
+    m (α × Lean.PersistentArray TraceElem) := do
   let old ← getTraces
   try
     modifyTraces fun _ => {}
@@ -463,19 +465,49 @@ private def tryParenthesizeCommand (stx : Syntax) : CoreM <| Syntax × Format :=
     pure (stx,
       f!"/- failed to parenthesize: {← e.toMessageData.toString}\n{Format.joinSep traces "\n"}-/")
 
-def push (stx : Syntax) : M Unit := do
+def commandToFmt (stx : Syntax.Command) : M Format := do
   let stx ← try (← read).transform stx catch ex =>
     warn! "failed to transform: {← ex.toMessageData.toString}" | pure stx
   let stx ← insertComments stx
-  let fmt ← liftCoreM $ do
+  liftCoreM $ do
     let (stx, parenthesizerErr) ← tryParenthesizeCommand stx
     pure $ parenthesizerErr ++ (←
       try Lean.PrettyPrinter.formatCommand stx
       catch e =>
         pure f!"-- failed to format: {← e.toMessageData.toString}\n{reprint stx}")
-  printOutput f!"{fmt}\n\n"
 
-def pushM (stx : M Syntax) : M Unit := stx >>= push
+def push (stx : Syntax.Command) : M Unit := do
+  if (← get).afterNextCommand.isEmpty then
+    printOutput f!"{← commandToFmt stx}\n\n"
+  else
+    printOutput f!"{← commandToFmt stx}\n"
+    for stx in ← modifyGet fun s => (s.afterNextCommand, { s with afterNextCommand := #[] }) do
+      printOutput f!"{← commandToFmt stx}\n"
+    printOutput f!"\n"
+
+def stripLastNewline : Format → Format
+  | .append f₁ f₂ => .append f₁ (stripLastNewline f₂)
+  | .text s => .text <|
+      let p := s.prev s.endPos; if s.get p == '\n' then s.extract 0 p else s
+  | f => f
+
+def pushM (stx : M Syntax.Command) : M Unit := stx >>= push
+
+def pushAlign (n3 n4 : Name) : M Unit := do
+  let stx ← `(command| #align $(mkIdent n3) $(mkIdent n4))
+  modify fun s => { s with afterNextCommand := s.afterNextCommand.push stx }
+
+def withReplacement (name : Option Name) (x : M Unit) : M Unit :=
+  match name with
+  | none => x
+  | some n => do
+    match (← read).config.replacementStyle with
+    | .skip => modify fun s => { s with afterNextCommand := #[] }
+    | .comment =>
+      printOutput f!"#print {n} /-\n"
+      x
+      modify fun s => { s with output := stripLastNewline s.output ++ "-/\n\n" }
+    | .keep => x
 
 def getNotationEntry? (n : Name) : M (Option NotationEntry) := do
   match (← get).current.localNotations.find? n with
@@ -530,11 +562,55 @@ def optTy (ty : Option Term) : M (Option (TSyntax ``Parser.Term.typeSpec)) :=
 def trCalcArg : Spanned Expr × Spanned Expr → M (TSyntax ``calcStep)
   | (lhs, rhs) => do `(calcStep| $(← trExpr lhs) := $(← trExpr rhs))
 
+def blockTransform : SyntaxNodeKind := decl_name%
+
+def mkBlockTransform (f : Array Syntax.Tactic → Id Syntax.Tactic)
+    (args : Array Syntax.Tactic := #[]) : Syntax.Tactic :=
+  ⟨mkNode blockTransform (#[Id.run (f #[])] ++ args)⟩
+
+def fillBlockTransform (block : Syntax.Tactic) (args : Array Syntax.Tactic) : Syntax.Tactic :=
+  let args := block.raw.getArgs[1:].toArray ++ args
+  let args : Array Syntax :=
+    if args.isEmpty then #[Id.run `(tactic| skip)] else mkSepArray args mkNullNode
+  -- assumes that the block tactic has the form `syntax "foo" tacticSeq : tactic`
+  ⟨block.raw[0].modifyArg 1 (·.modifyArg 0 (·.modifyArg 0 (·.setArgs args)))⟩
+
+partial def processBlockTransforms (tacs : Array Syntax.Tactic) : Array Syntax.Tactic :=
+  if let some i := tacs.findIdx? fun stx => stx.raw.getKind == blockTransform then
+    let (left, right) := tacs.splitAt (i + 1)
+    let right := processBlockTransforms right
+    let block := fillBlockTransform left.back right
+    left.pop.push block
+  else tacs
+
+def processBlockTransform (tac : Syntax.Tactic) : Syntax.Tactic :=
+  if tac.raw.getKind == blockTransform then fillBlockTransform tac #[] else tac
+
+def mkSemiSepArray (tacs : Array Syntax.Tactic) : Syntax := Id.run do
+  let mut i := 0
+  let mut lastLine := none
+  let mut r : Array Syntax := #[]
+  for a in tacs do
+    let thisLine := a.raw.getPos?.map stringPosToLine
+    if i > 0 then
+      let sameLine := match lastLine with
+        | some x => thisLine == some x
+        | _ => false
+      r := r.push (if sameLine then mkAtom ";" else mkNullNode) |>.push a
+    else
+      r := r.push a
+    i := i + 1
+    lastLine := thisLine
+  return mkNullNode r
+
+def trTactic (tac : Spanned Tactic) : M (TSyntax `tactic) :=
+  processBlockTransform <$> trTacticRaw tac
+
 partial def trBlock : Block → M (TSyntax ``Parser.Tactic.tacticSeq)
   | ⟨_, none, none, #[]⟩ => do `(Parser.Tactic.tacticSeq| {})
   | ⟨_, none, none, tacs⟩ =>
     return mkNode ``Parser.Tactic.tacticSeq #[mkNode ``Parser.Tactic.tacticSeq1Indented #[
-      mkNullNode $ ← tacs.mapM fun tac => return mkGroupNode #[← trTactic tac, mkNullNode]]]
+      mkSemiSepArray $ processBlockTransforms $ ← tacs.mapM trTacticRaw]]
   | ⟨_, _cl, _cfg, _tacs⟩ => warn! "unsupported (TODO): block with cfg"
 
 partial def trIdTactic : Block → M Syntax.Tactic
@@ -555,14 +631,11 @@ def expandBinderCollection
   (n : Name) (e : Spanned Expr) : M (Array (TSyntax ks)) := do
   warn! "warning: expanding binder collection {
     bi.bracket true $ spaced repr vars ++ " " ++ n.toString ++ " " ++ repr e}"
-  let vars := vars.map $ Spanned.map fun | BinderName.ident v => v | _ => `_x
-  let vars1 := vars.map $ Spanned.map BinderName.ident
-  let mut out ← trBinder vars1 none
   let H := #[Spanned.dummy BinderName._]
-  for v in vars do
+  vars.concatMapM fun v => do
+    let v := v.map fun | BinderName.ident v => v | _ => `_x
     let ty := Expr.notation (Choice.one n) #[v.map $ Arg.expr ∘ Expr.ident, e.map Arg.expr]
-    out := out ++ (← trBinder H (some (Spanned.dummy ty)))
-  pure out
+    return (← trBinder #[v.map BinderName.ident] none) ++ (← trBinder H (some (Spanned.dummy ty)))
 
 def trBasicBinder : BinderContext → BinderInfo → Option (Array (Spanned BinderName)) →
     Binders → Option (Spanned Expr) → Option Default → M Syntax.BracketedBinder
@@ -631,8 +704,8 @@ def trArm : Arm → M (TSyntax ``Parser.Term.matchAltExpr)
     `(Parser.Term.matchAltExpr|
       | $(← lhs.mapM trExpr),* => $(← trExpr rhs))
 
-def mkSimpleAttr (n : Name) (args : Array Syntax := #[]) :=
-  mkNode ``Parser.Attr.simple #[mkIdent n, mkNullNode args]
+def mkSimpleAttr (n : Name) (args : Array Syntax := #[]) : Syntax.Attr :=
+  ⟨mkNode ``Parser.Attr.simple #[mkIdent n, mkNullNode args]⟩
 
 def mkOpt (a : Option α) (f : α → M Syntax) : M Syntax :=
   match a with

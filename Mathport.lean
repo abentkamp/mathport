@@ -6,6 +6,9 @@ Authors: Mario Carneiro, Daniel Selsam
 import Mathport.Binary
 import Mathport.Syntax
 
+-- We import all of mathlib here so that `lake build` keeps the `Mathlib.olean` up to date.
+import Mathlib
+
 namespace Mathport
 
 open Lean Lean.Elab.Command
@@ -24,7 +27,8 @@ def mathport1 (config : Config) (path : Path) : IO Unit := do
     let ipath : Path ← resolveMod3 pcfg mod3
     pure { module := ipath.package ++ ipath.mod4 : Import }
 
-  if imports.isEmpty then imports := #[{ module := `Mathlib : Import }]
+  if imports.isEmpty then imports := config.baseModules.map ({ module := · : Import })
+  imports := imports ++ config.extraModules.map ({ module := · : Import })
 
   let opts := ({} : Options)
     |>.setNat `maxRecDepth 2000

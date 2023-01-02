@@ -1,0 +1,7 @@
+{"version": 4,
+ "packagesDir": "../../lake-packages",
+ "packages":
+ [{"path": {"name": "mathlib", "dir": "./../../lake-packages/mathlib"}},
+  {"path": {"name": "Qq", "dir": "./../../lake-packages/Qq"}},
+  {"path": {"name": "aesop", "dir": "./../../lake-packages/aesop"}},
+  {"path": {"name": "std", "dir": "./../../lake-packages/std"}}]}

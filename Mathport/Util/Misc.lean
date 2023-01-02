@@ -10,13 +10,23 @@ def uncurry (f : α → β → γ) : α × β → γ
 
 namespace Lean
 
-elab "leanDir!" : term =>
+elab "lean_dir%" : term =>
   return toExpr (← getLibDir (← findSysroot)).toString
 
 def Expr.isAppOfArityGE (e : Expr) (n : Name) (k : Nat) : Bool :=
   e.withApp fun f args => f.isConstOf n && args.size ≥ k
 
-open Std (HashMap)
+open Lean (HashMap)
+
+deriving instance Repr for ConstantVal
+deriving instance Repr for AxiomVal
+deriving instance Repr for ReducibilityHints
+deriving instance Repr for DefinitionVal
+deriving instance Repr for TheoremVal
+deriving instance Repr for OpaqueVal
+deriving instance Repr for Constructor
+deriving instance Repr for InductiveType
+deriving instance Repr for Declaration
 
 deriving instance Hashable for Position
 
@@ -72,7 +82,6 @@ def Declaration.toName : Declaration → Name
 
 end Lean
 
-export Std (HashSet HashMap RBMap RBNode)
 export System (FilePath)
 
 instance : MonadLift (Except String) IO where
@@ -117,33 +126,21 @@ elab:max "throw!" interpStr:interpolatedStr(term) : term <= ty => do
   let str ← Elab.liftMacroM <| interpStr.expandInterpolatedStr (← `(String)) (← `(toString))
   Elab.Term.elabTerm (← `(throwError ($head ++ $str : String))) ty
 
--- Note: we add "'" because we want the Mathported version to take priority.
-def List.splitAt' {α} (xs : List α) (i : Nat) : List α × List α :=
-  (xs.take i, xs.drop i)
-
 def Array.splitAt {α} (xs : Array α) (i : Nat) : Array α × Array α :=
-  ((xs.toList.take i).toArray, (xs.toList.drop i).toArray)
+  let right := xs.extract i xs.size
+  (xs.shrink i, right)
 
 def Array.asNonempty : Array α → Option (Array α)
   | #[] => none
   | hs => some hs
 
 -- TODO: faster version
-def Std.HashMap.insertWith [Hashable α] [BEq α] (m : HashMap α β) (merge : β → β → β) (a : α) (b : β) : HashMap α β :=
+def Lean.HashMap.insertWith [Hashable α] [BEq α] (m : HashMap α β) (merge : β → β → β) (a : α) (b : β) : HashMap α β :=
   match m.find? a with
   | none => m.insert a b
   | some c => m.insert a (merge c b)
 
-namespace Lean
-
-namespace NameMap
-
-instance : ForIn m (NameMap α) (Name × α) where
-  forIn := Std.RBMap.forIn
-
-end NameMap
-
-namespace Elab.Command
+namespace Lean.Elab.Command
 
 def CommandElabM.toIO (x : CommandElabM α) (ctx : Context) (s : State) : IO α := do
   match ← x ctx |>.run' s |>.toIO' with
@@ -169,11 +166,11 @@ syntax (name := attrStx)  "#attr "   attr : command
 
 deriving instance Repr for Syntax
 
-@[commandElab termStx] def elabTermStx : CommandElab
+@[command_elab termStx] def elabTermStx : CommandElab
   | `(#term $stx:term) => println! "{ stx}"
   | _ => throwUnsupportedSyntax
 
-@[commandElab cmdStx] def elabCmdStx : CommandElab
+@[command_elab cmdStx] def elabCmdStx : CommandElab
   | `(#cmd $stx:command) => do
     -- let stx ← liftTermElabM `none do formatCommand stx
     println! "{stx}\n"
@@ -181,7 +178,7 @@ deriving instance Repr for Syntax
     println! "{stx}\n"
   | _ => throwUnsupportedSyntax
 
-@[commandElab attrStx] def elabAttrStx : CommandElab
+@[command_elab attrStx] def elabAttrStx : CommandElab
   | `(#attr $stx:attr) => println! "{ stx}"
   | _ => throwUnsupportedSyntax
 

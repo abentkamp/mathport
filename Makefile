@@ -25,6 +25,12 @@
 
 SHELL := bash   # so we can use process redirection
 
+.PHONY: all build \
+	mathbin-source lean3-source source \
+	lean3-predata mathbin-predata predata \
+	init-logs oneshot unport port-lean port-mathbin port \
+	predata-tarballs mathport-tarballs tarballs rm-tarballs \
+
 all:
 
 build:
@@ -40,7 +46,7 @@ mathbin-source:
 	if [ ! -d "sources/mathlib" ]; then \
 		cd sources && git clone https://github.com/leanprover-community/mathlib.git; \
 	fi
-	cd sources/mathlib && git clean -xfd && git checkout $(MATHBIN_COMMIT)
+	cd sources/mathlib && git clean -xfd && git fetch && git checkout $(MATHBIN_COMMIT)
 	cd sources/mathlib && echo -n 'mathlib commit: ' && git rev-parse HEAD
 	cd sources/mathlib && leanpkg configure && ./scripts/mk_all.sh
 
@@ -76,15 +82,15 @@ source: mathbin-source lean3-source
 lean3-predata: lean3-source
 	find sources/lean/library -name "*.olean" -delete # ast only exported when oleans not present
 	cd sources/lean && elan override set `cat ../mathlib/leanpkg.toml | grep lean_version | cut -d '"' -f2`
-	cd sources/lean && lean --make --recursive --ast --tlean library
-	cd sources/lean/library && git rev-parse HEAD > rev
+	cd sources/lean && lean $(LEAN3_OPTS) --make --recursive --ast --tlean library
+	cd sources/lean/library && git rev-parse HEAD > upstream-rev
 
 # Build .ast and .tlean files for Mathlib 3.
 mathbin-predata: mathbin-source
 	find sources/mathlib -name "*.olean" -delete # ast only exported when oleans not present
 	# By changing into the directory, `elan` automatically dispatches to the correct binary.
-	cd sources/mathlib && lean --make --recursive --ast --tlean src
-	cd sources/mathlib && git rev-parse HEAD > rev
+	cd sources/mathlib && lean $(LEAN3_OPTS) --make --recursive --ast --tlean src
+	cd sources/mathlib && git rev-parse HEAD > upstream-rev
 
 optlib-predata:
 	find sources/optlib/src -name "*.olean" -delete # ast only exported when oleans not present
@@ -98,17 +104,17 @@ predata: lean3-predata mathbin-predata
 init-logs:
 	mkdir -p Logs
 
-MATHLIB4_LIB=./lean_packages/mathlib/build/lib
-MATHPORT_LIB=./build/lib
+config.lean.json: config.json
+	jq --arg COMMITINFO "leanprover-community/lean commit $$(cat sources/lean/library/upstream-rev)" '.commitInfo = $$COMMITINFO' < config.json > config.lean.json
 
-LEANBIN_LIB=./Outputs/oleans/leanbin
-MATHBIN_LIB=./Outputs/oleans/mathbin
+port-lean: init-logs build config.lean.json
+	./build/bin/mathport --make config.lean.json Leanbin::all >> Logs/mathport.out 2> >(tee -a Logs/mathport.err >&2)
 
-port-lean: init-logs build
-	./build/bin/mathport --make config.json Leanbin::all >> Logs/mathport.out 2> >(tee -a Logs/mathport.err >&2)
+config.mathlib.json: config.json
+	jq --arg COMMITINFO "leanprover-community/mathlib commit $$(cat sources/mathlib/upstream-rev)" '.commitInfo = $$COMMITINFO' < config.json > config.mathlib.json
 
-port-mathbin: port-lean
-	./build/bin/mathport --make config.json Leanbin::all Mathbin::all >> Logs/mathport.out 2> >(tee -a Logs/mathport.err >&2)
+port-mathbin: port-lean config.mathlib.json
+	./build/bin/mathport --make config.mathlib.json Leanbin::all Mathbin::all >> Logs/mathport.out 2> >(tee -a Logs/mathport.err >&2)
 
 port-optlib: init-logs
 	./build/bin/mathport --make config.json Leanbin::all Mathbin::all Optbin::all >> Logs/mathport.out 2> >(tee -a Logs/mathport.err >&2)
@@ -116,8 +122,8 @@ port-optlib: init-logs
 port: port-lean port-mathbin
 
 predata-tarballs:
-	find sources/lean/library/ -name "*.ast.json" -o -name "*.tlean" | tar -czvf lean3-predata.tar.gz -T -
-	find sources/mathlib/ -name "*.ast.json" -o -name "*.tlean" | tar -czvf mathlib3-predata.tar.gz -T -
+	find sources/lean/library/ -name "*.ast.json" -o -name "*.tlean" -o -name upstream-rev | tar -czvf lean3-predata.tar.gz -T -
+	find sources/mathlib/ -name "*.ast.json" -o -name "*.tlean" -o -name upstream-rev | tar -czvf mathlib3-predata.tar.gz -T -
 
 mathport-tarballs:
 	mkdir -p Outputs/src/leanbin Outputs/src/mathbin Outputs/oleans/leanbin Outputs/oleans/mathbin
@@ -139,3 +145,26 @@ unport:
 
 rm-tarballs:
 	rm lean3-predata.tar.gz lean3-synport.tar.gz lean3-binport.tar.gz mathlib3-predata.tar.gz mathlib3-synport.tar.gz mathlib3-binport.tar.gz
+
+Oneshot/lean3-in/main.ast.json: Oneshot/lean3-in/*.lean
+	cd Oneshot/lean3-in && elan override set `cat ../../sources/mathlib/leanpkg.toml | grep lean_version | cut -d '"' -f2`
+	cd Oneshot/lean3-in && lean --make --recursive --ast --tlean . || true
+
+Oneshot/lean4-in/build/lib/Oneshot.trace: Oneshot/lean4-in/*.lean
+	cd Oneshot/lean4-in && lake build
+
+config.oneshot.json: config.json
+	jq '.extraModules += ["Oneshot"]' < config.json > config.oneshot.json
+
+Outputs/src/oneshot/Oneshot/Main.lean: Oneshot/lean3-in/main.ast.json Oneshot/lean4-in/build/lib/Oneshot.trace config.oneshot.json
+	mkdir -p Logs/
+	./build/bin/mathport config.oneshot.json Oneshot::main >> Logs/oneshot.out 2> >(tee -a Logs/oneshot.err >&2)
+
+oneshot: Outputs/src/oneshot/Oneshot/Main.lean
+	# output is in Outputs/src/oneshot/Oneshot/Main.lean
+
+clean-oneshot:
+	find Oneshot/lean3-in -name "*.olean" -delete
+	rm Oneshot/lean3-in/main.ast.json || true
+	cd Oneshot/lean4-in && lake clean
+	rm config.oneshot.json || true

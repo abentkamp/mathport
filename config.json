@@ -4,17 +4,23 @@
         "packages": {
             "Leanbin": "sources/lean/library",
             "Mathbin": "sources/mathlib/src",
-            "Optbin":   "sources/optlib/src"
+            "Oneshot": "Oneshot/lean3-in"
         },
         "leanPath": [
-            "./lean_packages/mathlib/build/lib",
-            "./lean_packages/optlib/build/lib",
-            "./lean_packages/std/build/lib",
+            "./lake-packages/mathlib/build/lib",
+            "./lake-packages/optlib/build/lib",
+            "./lake-packages/Qq/build/lib",
+            "./lake-packages/std/build/lib",
+            "./lake-packages/aesop/build/lib",
+            "./Oneshot/lean4-in/build/lib",
             "./Outputs/oleans/leanbin",
             "./Outputs/oleans/mathbin",
+            "./Outputs/oleans/oneshot",
             "./Outputs/oleans/optbin"
         ]
     },
+    "baseModules": ["Mathlib"],
+    "extraModules": [],
     "stringsToKeep": [
         "_sunfold",
         "equations",
@@ -58,5 +64,8 @@
     ],
     "sorries": [],
     "skipProofs": false,
-    "error2warning" : false
+    "skipDefEq": true,
+    "replacementStyle": "comment",
+    "redundantAlign": true,
+    "error2warning" : true
 }

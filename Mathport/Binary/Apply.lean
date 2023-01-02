@@ -14,7 +14,6 @@ import Mathport.Binary.TranslateExpr
 
 namespace Mathport.Binary
 
-open Std (HashMap HashSet)
 open Lean Lean.Meta Lean.Elab Lean.Elab.Command
 
 def inCurrentModule [Monad M] [MonadEnv M] (n : Name) : M Bool :=
@@ -33,22 +32,72 @@ def printDeclDebug (decl : Declaration) : BinportM Unit := do
     println! "[value] {thm.value}"
   | _ => pure ()
 
+def stubValue : Declaration → MetaM Declaration
+  | .thmDecl val => return .thmDecl { val with value := ← mkSorry val.type true }
+  | .defnDecl val => return .opaqueDecl { val with value := ← mkSorry val.type true, isUnsafe := false }
+  | .mutualDefnDecl defns => .mutualDefnDecl <$> defns.mapM fun defn =>
+    return { defn with value := ← mkSorry defn.type true }
+  | d => pure d
+
+def stubType : Declaration → MetaM Declaration
+  | .axiomDecl val =>
+    return .axiomDecl { val with type := mkPUnit (← inferTypeD val.type) }
+  | .thmDecl val => do
+    stubValue (.thmDecl { val with type := mkPUnit (← inferTypeD val.type) })
+  | .defnDecl val => do
+    stubValue (.defnDecl { val with type := mkPUnit (← inferTypeD val.type) })
+  | .opaqueDecl val =>
+    return .opaqueDecl { val with type := mkPUnit (← inferTypeD val.type) }
+  | .mutualDefnDecl defns => do
+    stubValue <| .mutualDefnDecl <|← defns.mapM fun defn =>
+      return { defn with type := mkPUnit (← inferTypeD defn.type) }
+  | .inductDecl lp _ tys uns => (.inductDecl lp 0 · uns) <$> tys.mapM fun ty =>
+    return { ty with
+      type := ← try forallTelescopeReducing ty.type fun _ => pure
+                catch _ => pure (.sort (.succ .zero))
+      ctors := ← ty.ctors.mapM fun ctor =>
+        return { ctor with type := .const ty.name (lp.map .param) } }
+  | d => pure d
+where
+  inferTypeD ty := try inferType ty catch _ => pure (.sort .zero)
+  mkPUnit tyty :=
+    let u := match tyty with
+    | .sort lvl => lvl
+    | _ => .zero
+    mkConst ``PUnit [u]
+
 def refineAddDecl (decl : Declaration) : BinportM (Declaration × ClashKind) := do
   let path := (← read).path
   println! "[addDecl] START REFINE {path.mod3} {decl.toName}"
   let ⟨decl, clashKind⟩ ← refineLean4NamesAndUpdateMap decl
   match clashKind with
-  | ClashKind.foundDefEq =>
+  | ClashKind.found "" =>
     println! "[addDecl] FOUND DEF-EQ {path.mod3} {decl.toName}"
+  | ClashKind.found _ =>
+    println! "[addDecl] FOUND DUBIOUS {path.mod3} {decl.toName}"
   | ClashKind.freshDecl =>
     println! "[addDecl] START CHECK  {path.mod3} {decl.toName}"
     try
-      Lean.addDecl decl
+      liftCoreM <| Lean.addDecl decl
     catch ex =>
       println! "[kernel] {← ex.toMessageData.toString}"
-      if (← read).config.error2warning then printDeclDebug decl
+      if (← read).config.error2warning then
+        -- printDeclDebug decl
+        try
+          println! "[addDecl] stubbing value of {decl.toName}"
+          let decl ← liftMetaM <| stubValue decl
+          liftCoreM <| Lean.addDecl decl
+        catch _ =>
+          println! "[addDecl] stubbing type of {decl.toName}"
+          let decl ← liftMetaM <| stubType decl
+          try
+            liftCoreM <| Lean.addDecl decl
+          catch _ =>
+            println! "[addDecl] failed to port {decl.toName}"
+            throw ex
       else throw ex
 
+    modifyEnv fun env => binportTag.ext.addEntry env decl.toName
     println! "[addDecl] END CHECK    {path.mod3} {decl.toName}"
     if shouldGenCodeFor decl then
       println! "[compile] {decl.toName} START"
@@ -223,7 +272,7 @@ def applyInstance (_nc ni : Name) (prio : Nat) : BinportM Unit := do
   if (← read).config.disabledInstances.contains ni then return ()
   try
     liftMetaM $ addInstance (← lookupNameExt! ni) AttributeKind.global prio
-    setAttr { name := `inferTCGoalsRL } (← lookupNameExt! ni)
+    setAttr { name := `infer_tc_goals_rl } (← lookupNameExt! ni)
   catch ex => warn ex
 
 def applyAxiomVal (ax : AxiomVal) : BinportM Unit := do

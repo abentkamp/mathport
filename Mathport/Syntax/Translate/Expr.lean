@@ -94,13 +94,13 @@ def trExtBinders (args : Array (Spanned Binder)) : M Syntax := do
   | ⟨_, Binder.collection bi vars n rhs⟩ =>
     if let some g := predefinedBinderPreds.find? n then
       onVars vars fun v =>
-        return #[← `(Mathlib.ExtendedBinder.extBinder|
+        return #[← `(Std.ExtendedBinder.extBinder|
           $(trBinderIdent v):binderIdent $(g (← trExpr rhs)):binderPred)]
     else
       expandBinderCollection trBasicBinder bi vars n rhs
   | ⟨_, Binder.notation _⟩ => warn! "unsupported: (notation) binder" | pure #[]
-  if let #[bi] := out then `(Mathlib.ExtendedBinder.extBinders| $bi:extBinder)
-  else `(Mathlib.ExtendedBinder.extBinders| $[($out:extBinder)]*)
+  if let #[bi] := out then `(Std.ExtendedBinder.extBinders| $bi:extBinder)
+  else `(Std.ExtendedBinder.extBinders| $[($out:extBinder)]*)
 where
   onVars {α} (vars) (f : BinderName → M (Array α)) : M (Array α) := do
     if vars.size > 1 then
@@ -108,7 +108,7 @@ where
     vars.concatMapM (fun ⟨_, v⟩ => f v)
   trBasicBinder (vars ty) :=
     onVars vars fun v =>
-      return #[← `(Mathlib.ExtendedBinder.extBinder|
+      return #[← `(Std.ExtendedBinder.extBinder|
         $(trBinderIdent v):binderIdent $[: $(← ty.mapM fun ty => trExpr ty)]?)]
 
 partial def trFunBinder : Binder → M (Array Syntax.FunBinder)
@@ -249,6 +249,7 @@ partial def trLevel : Level → M Syntax.Level
   | Level.param u => pure $ mkIdent u
   | Level.paren l => trLevel l.kind -- do `(level| ($(← trLevel l.kind)))
 
+open Qq in
 def trExpr' : Expr → M Term
   | Expr.«...» => `(_)
   | Expr.sorry => `(sorry)
@@ -324,10 +325,10 @@ def trExpr' : Expr → M Term
       warn! "unsupported (impossible)"
   | Expr.«@» _ e => do `(@$(← trExpr e))
   | Expr.pattern e => trExpr e
-  | Expr.«`()» _ true e => do `(quote $(← trExpr e))
-  | Expr.«`()» false false e => do `(pquote $(← trExpr e))
-  | Expr.«`()» true false e => do `(ppquote $(← trExpr e))
-  | Expr.«%%» e => do `(%%ₓ$(← trExpr e))
+  | Expr.«`()» _ true e => do `(q($(← trExpr e)))
+  | Expr.«`()» false false e => do `(``($(← trExpr e)))
+  | Expr.«`()» true false e => do `(`($(← trExpr e)))
+  | Expr.«%%» e => do `($$($(← trExpr e)))
   | Expr.«`[]» _tacs => do
     warn! "warning: unsupported (TODO): `[tacs]"
     `(sorry)
@@ -377,11 +378,10 @@ def trExpr' : Expr → M Term
         `(Parser.Term.structInstFieldAbbrev| $lhsId:ident)
       else
         `(Parser.Term.structInstField| $lhsId:ident := $(← trExpr rhs))
-    -- TODO(Mario): formatter has trouble if you omit the commas
     if catchall then
-      `({ $[$srcs,* with]? $[$flds],* .. })
+      `({ $[$srcs,* with]? $[$flds]* .. })
     else
-      `({ $[$srcs,* with]? $[$flds],* })
+      `({ $[$srcs,* with]? $[$flds]* })
   | Expr.atPat lhs rhs => do `($(mkIdent lhs.kind)@ $(← trExpr rhs))
   | Expr.notation n args => trNotation n args
   | Expr.userNotation n args => do

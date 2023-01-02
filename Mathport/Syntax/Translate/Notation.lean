@@ -6,10 +6,11 @@ Authors: Mario Carneiro
 import Mathport.Util.Json
 import Mathport.Util.Misc
 import Mathlib.Mathport.Syntax
-import Mathlib.Init.ExtendedBinder
-import Mathlib.Init.Set
+import Std.Util.ExtendedBinder
+import Std.Classes.SetNotation
+import Mathlib.Algebra.Abs
+import Mathlib.Data.Set.Lattice
 
-open Std (HashMap)
 open Lean
 
 namespace Mathport
@@ -100,8 +101,8 @@ def predefinedNotations : NameMap NotationEntry := [
     ("expr % ", binary fun f x => Id.run `($f % $x)),
     ("expr- ", unary fun x => Id.run `(-$x)),
     ("expr ⁻¹", unary fun x => Id.run `($x⁻¹)),
-    ("expr| |", unary fun x => Id.run `(abs $x)), -- TODO: https://github.com/leanprover-community/mathport/issues/73
-    ("expr-[1+ ]", unary fun x => Id.run `(-[1+ $x ])),
+    ("expr| |", unary fun x => Id.run `(|$x|)),
+    ("expr-[1+ ]", unary fun x => open Int in Id.run `(-[$x+1])),
     ("expr ^ ", binary fun f x => Id.run `($f ^ $x)),
     ("expr ∘ ", binary fun f x => Id.run `($f ∘ $x)),
     ("expr <= ", binary fun f x => Id.run `($f ≤ $x)),
@@ -148,9 +149,9 @@ def predefinedNotations : NameMap NotationEntry := [
     ("expr |> ", binary fun x y => Id.run `(Option.rhoare $x $y)),
     ("expr ≟ ", binary fun x y => Id.run `(UnificationConstraint.mk $x $y)),
     ("expr =?= ", binary fun x y => Id.run `(UnificationConstraint.mk $x $y)),
-    ("expr <.> ", binary fun x y => Id.run `(mkStrName $x $y)),
-    ("exprcommand", const <| Id.run `(Tactic Unit)),
-    ("expr =ₐ ", binary fun x y => Id.run `(expr.alpha_eqv $x $y)),
+    ("expr <.> ", binary fun x y => Id.run `(.str $x $y)),
+    ("exprcommand", open Lean.Elab.Tactic in const <| Id.run `(Tactic)),
+    ("expr =ₐ ", binary fun x y => Id.run `($x == $y)),
     ("exprdec_trivial", const <| Id.run `(by decide)),
     ("exprformat! ", unary id),
     ("exprsformat! ", unary id),

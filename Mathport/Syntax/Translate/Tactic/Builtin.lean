@@ -12,52 +12,64 @@ open Lean.Elab (Visibility)
 open Lean.Elab.Command (CommandElabM liftCoreM)
 open AST3
 
-partial def trTacticOrList : Spanned Tactic → M (Sum Syntax.Tactic (Array Syntax.Tactic))
+partial def trTacticOrList : Spanned Tactic → M (Syntax.Tactic ⊕ Array Syntax.Tactic)
   | ⟨_, Tactic.«[]» args⟩ => Sum.inr <$> args.mapM fun arg => trTactic arg
   | tac => Sum.inl <$> trTactic tac
 
-partial def trTactic' : Tactic → M Syntax.Tactic
-  | Tactic.block bl => do `(tactic| · ($(← trBlock bl):tacticSeq))
-  | Tactic.by tac => do `(tactic| · $(← trTactic tac):tactic)
-  | Tactic.«;» tacs => do
-    let rec build (i : Nat) (lhs : Syntax.Tactic) : M Syntax.Tactic :=
-      if h : i < tacs.size then do
-        match ← trTacticOrList tacs[i] with
-        | Sum.inl tac => `(tactic| $lhs <;> $(← build (i+1) tac))
-        | Sum.inr tacs => build (i+1) (← `(tactic| $lhs <;> [$tacs,*]))
-      else pure lhs
-    if h : tacs.size > 0 then
-      build 1 (← trTactic tacs[0])
+def trSeqFocusList : List (Spanned Tactic) → M Syntax.Tactic
+  | [] => `(tactic| skip)
+  | tac::rest => do
+    let tac ← trTacticRaw tac
+    if tac.raw.getKind == blockTransform then
+      match rest with
+      | [] => pure (fillBlockTransform tac #[])
+      | tac2::rest => do
+        let res ← go rest (← trTactic tac2)
+        pure ⟨tac.raw.modifyArgs (·.push res)⟩
     else
-      `(tactic| skip)
-  | Tactic.«<|>» tacs => do
+      go rest tac
+where
+  go : List (Spanned Tactic) → Syntax.Tactic → M Syntax.Tactic
+  | [], lhs => pure lhs
+  | tac::rest, lhs => do
+    match ← trTacticOrList tac with
+    | .inl tac => go rest <|← `(tactic| $lhs <;> $tac)
+    | .inr tacs => go rest <|← `(tactic| $lhs <;> [$tacs,*])
+
+partial def trTactic' : Tactic → M Syntax.Tactic
+  | .block bl => do `(tactic| · ($(← trBlock bl):tacticSeq))
+  | .by tac => do `(tactic| · $(← trTactic tac):tactic)
+  | .«;» tacs => trSeqFocusList tacs.toList
+  | .«<|>» tacs => do
     `(tactic| first $[| $(← tacs.mapM fun tac => trTactic tac):tactic]*)
-  | Tactic.«[]» _tacs => warn! "unsupported (impossible)"
-  | Tactic.exact_shortcut ⟨m, Expr.calc args⟩ => withSpanS m do
+  | .«[]» _tacs => warn! "unsupported (impossible)"
+  | .exact_shortcut ⟨m, Expr.calc args⟩ => withSpanS m do
     if h : args.size > 0 then
       `(tactic| calc $(← trCalcArg args[0]) $(← args[1:].toArray.mapM trCalcArg)*)
     else
       warn! "unsupported (impossible)"
-  | Tactic.exact_shortcut e => do `(tactic| exact $(← trExpr e))
-  | Tactic.expr e =>
+  | .exact_shortcut e => do `(tactic| exact $(← trExpr e))
+  | .expr e =>
     match e.unparen with
     | ⟨_, Expr.«`[]» tacs⟩ => trIdTactic ⟨true, none, none, tacs⟩
     | e => do
       let rec head
-      | Expr.ident x => x
-      | Expr.paren e => head e.kind
-      | Expr.app e _ => head e.kind
-      | _ => Name.anonymous
-      match Rename.resolveIdent? (← getEnv) (head e.kind) with
-      | none =>
-        -- warn! "unsupported non-interactive tactic {repr e}"
+      | .const _ _ #[x] | .const ⟨_, x⟩ _ _ | .ident x => some x
+      | .paren e => head e.kind
+      | .app e _ => head e.kind
+      | _ => none
+      let rec fallback := do
         match ← trExpr e with
         | `(do $[$els]*) => `(tactic| run_tac $[$els:doSeqItem]*)
         | stx => `(tactic| run_tac $stx:term)
+      match head e.kind with
+      | none =>
+        -- warn! "unsupported non-interactive tactic {repr e}"
+        fallback
       | some n =>
         match (← get).niTactics.find? n with
         | some f => try f e.kind catch e => warn! "in {n}: {← e.toMessageData.toString}"
-        | none => warn! "unsupported non-interactive tactic {n}"
+        | none => warn! "unsupported non-interactive tactic {n}" | fallback
   | Tactic.interactive n args => do
     match (← get).tactics.find? n with
     | some f => try f args catch e => warn! "in {n} {repr args}: {← e.toMessageData.toString}"

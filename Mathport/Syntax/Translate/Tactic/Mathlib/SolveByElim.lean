@@ -13,15 +13,16 @@ open AST3 Mathport.Translate.Parser
 
 -- # tactic.solve_by_elim
 
-@[trTactic apply_assumption] def trApplyAssumption : TacM Syntax := do
-  match ← expr?, ← expr?, ← expr? with
+@[tr_tactic apply_assumption] def trApplyAssumption : TacM Syntax.Tactic := do
+  match ← parse (pExprList)?, ← expr?, ← expr? with
   | none, none, none => `(tactic| apply_assumption)
   | _, _, _ => warn! "unsupported: apply_assumption arguments" -- unattested
 
-@[trTactic solve_by_elim] def trSolveByElim : TacM Syntax := do
+@[tr_tactic solve_by_elim] def trSolveByElim : TacM Syntax.Tactic := do
   let star := optTk (← parse (tk "*")?).isSome
   let o := optTk (← parse onlyFlag)
-  let hs := (← trSimpArgs (← parse simpArgList)).asNonempty
-  let attrs := (← parse (tk "with" *> ident*)?).getD #[] |>.map mkIdent |>.asNonempty
+  let hs ← trSimpArgs (← parse simpArgList)
+  let attrs := (← parse (tk "with" *> ident*)?).getD #[]
+  let hs := (hs ++ attrs.map trSimpExt).asNonempty
   let cfg ← mkConfigStx? (← liftM $ (← expr?).mapM trExpr)
-  `(tactic| solve_by_elim $[*%$star]? $(cfg)? $[only%$o]? $[[$hs,*]]? $[with $attrs*]?)
+  `(tactic| solve_by_elim $[*%$star]? $(cfg)? $[only%$o]? $[[$hs,*]]?)

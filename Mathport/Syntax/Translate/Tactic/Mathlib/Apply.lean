@@ -13,27 +13,17 @@ open AST3 Parser
 
 -- # tactic.apply
 
-@[trTactic apply'] def trApply' : TacM Syntax := do
-  `(tactic| apply' $(← trExpr (← parse pExpr)))
+@[tr_tactic apply'] def trApply' : TacM Syntax.Tactic := do
+  `(tactic| apply $(← trExpr (← parse pExpr)))
 
-@[trTactic fapply'] def trFApply' : TacM Syntax := do
-  `(tactic| fapply' $(← trExpr (← parse pExpr)))
+attribute [tr_tactic fapply'] trFApply
+attribute [tr_tactic eapply'] trEApply
+attribute [tr_tactic apply_with'] trApplyWith
+attribute [tr_tactic mapply'] trMApply
+attribute [tr_tactic reflexivity' refl'] trRefl
 
-@[trTactic eapply'] def trEApply' : TacM Syntax := do
-  `(tactic| eapply' $(← trExpr (← parse pExpr)))
+@[tr_tactic symmetry'] def trSymmetry' : TacM Syntax.Tactic := do
+  `(tactic| symm $(← trLoc (← parse location))?)
 
-@[trTactic apply_with'] def trApplyWith' : TacM Syntax := do
-  let e ← trExpr (← parse pExpr)
-  let cfg ← liftM $ (← expr?).mapM trExpr
-  `(tactic| apply_with' $[(config := $cfg)]? $e)
-
-@[trTactic mapply'] def trMApply' : TacM Syntax := do
-  `(tactic| mapply' $(← trExpr (← parse pExpr)))
-
-@[trTactic reflexivity' refl'] def trRefl' : TacM Syntax := `(tactic| rfl')
-
-@[trTactic symmetry'] def trSymmetry' : TacM Syntax := do
-  `(tactic| symm' $(← trLoc (← parse location))?)
-
-@[trTactic transitivity'] def trTransitivity' : TacM Syntax := do
-  `(tactic| trans' $[$(← liftM $ (← parse (pExpr)?).mapM trExpr)]?)
+@[tr_tactic transitivity'] def trTransitivity' : TacM Syntax.Tactic := do
+  `(tactic| trans $[$(← liftM $ (← parse (pExpr)?).mapM trExpr)]?)

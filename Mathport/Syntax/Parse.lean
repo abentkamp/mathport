@@ -10,7 +10,7 @@ import Mathport.Syntax.AST3
 
 namespace Mathport
 
-open Lean (Json FromJson Position Name BinderInfo)
+open Lean (Json FromJson Position Name BinderInfo HashMap)
 open Lean.FromJson (fromJson?)
 
 namespace Parse
@@ -96,7 +96,8 @@ def opt (f : AstId → M α) (i : AstId) : M (Option α) :=
 def getRaw (i : AstId) : M RawNode3 := do
   match (← read).ast[i]! with
   | some a => pure a
-  | none => throw $ if i = 0 then "unexpected null node" else "missing node"
+  | none => dbgStackTrace fun _ =>
+    throw $ if i = 0 then "unexpected null node" else "missing node"
 
 def withNodeK (f : String → Name → Array AstId → M α) (i : AstId) : M α := do
   let r ← getRaw i
@@ -267,7 +268,7 @@ mutual
     | "binder_1", _, args => binder BinderInfo.instImplicit args
     | "binder_2", _, args => binder BinderInfo.strictImplicit args
     | "binder_4", _, args => binder BinderInfo.implicit args
-    | "binder_8", _, args => binder BinderInfo.auxDecl args
+    | "binder_8", _, args => binder BinderInfo.default args -- aux decl binders not supported
     | k, _, args => match toNotationKind k with
       | some nk => Binder.notation <$> getNotationId nk args
       | none => throw s!"getBinder parse error, unknown kind {k}"
@@ -525,7 +526,7 @@ partial def getField : AstId → M (Spanned Field) := withNode fun
   | "field_1", _, args => field BinderInfo.instImplicit args
   | "field_2", _, args => field BinderInfo.strictImplicit args
   | "field_4", _, args => field BinderInfo.implicit args
-  | "field_8", _, args => field BinderInfo.auxDecl args
+  | "field_8", _, args => field BinderInfo.default args -- aux decl binders not supported
   | k, _, args => match toNotationKind k with
     | some nk => Field.notation <$> getNotationDef nk args
     | none => throw s!"getField parse error, unknown kind {k}"
@@ -726,15 +727,18 @@ where
   getVars (args : Array AstId) (f : Modifiers → Binders → Command) : M Command := do
     f (← getModifiers args[0]!) <$> args[1:].toArray.mapM getBinder
 
+  getUWF : AstId → M (Spanned Expr) := withNodeK fun _ _ args => getExpr args[0]!
+
   getDecl (dk) (args : Array AstId) : M Command := do
     let mods ← getModifiers args[0]!
     if args[1]! = 0 then
       let (us, n, bis, ty) ← getHeader args[2:6]
       let val ← getDeclVal args[6]!
-      pure $ Command.decl dk mods n us bis ty val
+      let uwf ← if let .expr _ := val.kind then pure none else opt getUWF args[7]!
+      pure $ .decl dk mods n us bis ty val uwf
     else
       let (us, bis) ← getMutualHeader args[2:5]
-      pure $ Command.mutualDecl dk mods us bis (← arr (getMutual getArm) args[5]!)
+      pure $ .mutualDecl dk mods us bis (← arr (getMutual getArm) args[5]!) (← opt getUWF args[6]!)
 
   getNotationCmd (mk : Option MixfixKind) (args : Array AstId) : M Command :=
     return Command.notation
@@ -799,7 +803,7 @@ instance : FromJson BinderInfo where
     | 1 => pure BinderInfo.instImplicit
     | 2 => pure BinderInfo.strictImplicit
     | 4 => pure BinderInfo.implicit
-    | 8 => pure BinderInfo.auxDecl
+    | 8 => pure BinderInfo.default -- aux decl binders not supported
     | _ => throw "unknown binder type"
 
 inductive Annotation

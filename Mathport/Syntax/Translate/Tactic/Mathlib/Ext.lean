@@ -13,20 +13,24 @@ open AST3 Parser
 
 -- # tactic.ext
 
-@[trUserAttr ext] def trExtAttr : TacM Syntax := do
-  `(attr| ext $(← liftM $ (← parse (ident)?).mapM mkIdentI)?)
+@[tr_user_attr ext] def trExtAttr : Parse1 Syntax.Attr :=
+  parse1 (ident)? fun n => do
+  if n.isSome then warn! "unsupported: attribute [ext id]"
+  return mkSimpleAttr `ext
+  -- This creates a hygienic name, which might be pretty-printed as ext.1:
+  -- `(attr| ext)
 
-@[trTactic ext1] def trExt1 : TacM Syntax := do
+@[tr_tactic ext1] def trExt1 : TacM Syntax.Tactic := do
   let hint ← parse (tk "?")?
   let pats ← liftM $ (← parse (rcasesPat true)*).mapM trRCasesPat
   match hint with
-  | none => `(tactic| ext1 $[$pats:rcasesPat]*)
-  | some _ => `(tactic| ext1? $[$pats:rcasesPat]*)
+  | none => `(tactic| ext1 $[$pats]*)
+  | some _ => `(tactic| ext1? $[$pats]*)
 
-@[trTactic ext] def trExt : TacM Syntax := do
+@[tr_tactic ext] def trExt : TacM Syntax.Tactic := do
   let hint ← parse (tk "?")?
-  let pats ← liftM $ (← parse (rcasesPat true)*).mapM trRCasesPat
+  let pats ← liftM $ (← parse rintroPat*).mapM trRIntroPat
   let depth := (← parse (tk ":" *> smallNat)?).map Quote.quote
   match hint with
-  | none => `(tactic| ext $[$pats:rcasesPat]* $[: $depth]?)
-  | some _ => `(tactic| ext? $[$pats:rcasesPat]* $[: $depth]?)
+  | none => `(tactic| ext $[$pats]* $[: $depth]?)
+  | some _ => `(tactic| ext? $[$pats]* $[: $depth]?)

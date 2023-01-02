@@ -13,11 +13,11 @@ open AST3 Mathport.Translate.Parser
 
 -- # tactic.choose
 
-@[trTactic choose] def trChoose : TacM Syntax := do
+@[tr_tactic choose] def trChoose : TacM Syntax.Tactic := do
   let nondep ← parse (tk "!")?
   let ns := (#[← parse ident] ++ (← parse ident*)).map mkIdent
   let tgt ← liftM $ (← parse (tk "using" *> pExpr)?).mapM trExpr
   match nondep with
-  | none => `(tactic| choose $[$ns]* $[using $tgt]?)
-  | some _ => `(tactic| choose! $[$ns]* $[using $tgt]?)
+  | none => `(tactic| choose $[$ns:ident]* $[using $tgt]?)
+  | some _ => `(tactic| choose! $[$ns:ident]* $[using $tgt]?)
 

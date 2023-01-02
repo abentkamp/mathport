@@ -1,5 +1,6 @@
 import Mathlib
 import Mathbin
+import Optlib
 
 #check Semiring
 #lookup3 semiring
@@ -8,3 +9,5 @@ import Mathbin
 #lookup3 nat.exists_infinite_primes
 
 example (n : Nat) : n + n = 2 * n := by ring
+
+#check gaussianPdf
